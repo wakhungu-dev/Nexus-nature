@@ -1,4 +1,3 @@
-# Nexus-nature
 # Nexus Nature 🌿
 
 A web application designed to help developers and digital professionals reconnect with nature, track their outdoor time, and improve their wellbeing through data-driven insights and community challenges.
