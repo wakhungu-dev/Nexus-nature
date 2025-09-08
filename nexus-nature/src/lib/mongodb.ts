@@ -9,4 +9,4 @@ const mongoDbConnection = async () => {
  } 
 };
 
-mongoDbConnection();
+export default mongoDbConnection;
