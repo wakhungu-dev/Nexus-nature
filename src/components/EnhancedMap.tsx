@@ -3,6 +3,13 @@ import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+// Extend HTMLElement type to include leaflet map
+declare global {
+  interface Window {
+    L: typeof L;
+  }
+}
+
 // Custom icons for different nature types
 const createCustomIcon = (type: string) => {
   const iconUrls = {
@@ -37,10 +44,14 @@ const MapComponent = () => {
   ]);
   const [natureLocations, setNatureLocations] = useState<NatureLocation[]>([]);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
-  const [mapKey, setMapKey] = useState(Date.now()); // Use timestamp for unique keys
   const [isClient, setIsClient] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [error] = useState<string>('');
+  const [isMapReady, setIsMapReady] = useState(false);
+  const [mapKey, setMapKey] = useState(() => Date.now());
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const watchIdRef = useRef<number | null>(null);
 
   // Helper function to calculate distance between two points
   const calculateDistance = (pos1: [number, number], pos2: [number, number]): number => {
@@ -56,6 +67,8 @@ const MapComponent = () => {
 
   // Function to check proximity to nature locations
   const checkProximityToNature = useCallback(async (userPos: [number, number]) => {
+    if (natureLocations.length === 0) return;
+    
     // Check if user is within 100m of any nature location
     const nearbyNature = natureLocations.find(location => {
       const distance = calculateDistance(userPos, location.coordinates);
@@ -63,58 +76,94 @@ const MapComponent = () => {
     });
 
     if (nearbyNature) {
-      // Start logging green session
-      await fetch('/api/green-sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: {
-            type: 'Point',
-            coordinates: userPos
-          },
-          source: 'gps',
-          startTime: new Date()
-        })
-      });
+      try {
+        // Start logging green session
+        await fetch('/api/green-sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            location: {
+              type: 'Point',
+              coordinates: userPos
+            },
+            source: 'gps',
+            startTime: new Date()
+          })
+        });
+      } catch (error) {
+        console.error('Failed to log green session:', error);
+      }
     }
   }, [natureLocations]);
 
-  // Initialize client-side rendering and map key
-  useEffect(() => {
-    setIsClient(true);
-    setMapKey(Date.now()); // Force new unique key
-    setHasError(false);
-    
-    // Cleanup any existing map containers
-    return () => {
-      if (containerRef.current) {
-        const mapDivs = containerRef.current.querySelectorAll('.leaflet-container');
-        mapDivs.forEach(div => {
-          const mapInstance = (div as any)._leaflet_map;
-          if (mapInstance) {
-            try {
-              mapInstance.remove();
-            } catch (e) {
-              // Ignore cleanup errors
-            }
-          }
-        });
+  // Comprehensive cleanup function
+  const cleanupMap = useCallback(() => {
+    // Clear geolocation watch
+    if (watchIdRef.current) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    // Clean up map instance
+    if (mapInstanceRef.current) {
+      try {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      } catch (error) {
+        console.warn('Error cleaning up map:', error);
       }
-    };
+    }
+
+    // Clean up any remaining leaflet containers
+    if (containerRef.current) {
+      const leafletContainers = containerRef.current.querySelectorAll('.leaflet-container');
+      leafletContainers.forEach(container => {
+        const mapInstance = (container as HTMLElement & { _leaflet_map?: L.Map })._leaflet_map;
+        if (mapInstance) {
+          try {
+            mapInstance.remove();
+          } catch (error) {
+            console.warn('Error removing leaflet container:', error);
+          }
+        }
+      });
+    }
   }, []);
 
+  // Initialize client-side rendering
+  useEffect(() => {
+    // Force cleanup of any existing maps before initialization
+    cleanupMap();
+    
+    // Small delay to ensure cleanup is complete
+    const timer = setTimeout(() => {
+      setIsClient(true);
+      setHasError(false);
+    }, 50);
+    
+    return () => {
+      clearTimeout(timer);
+      cleanupMap();
+    };
+  }, [cleanupMap]);
+
   // Reset map on error
-  const resetMap = () => {
+  const resetMap = useCallback(() => {
     setHasError(false);
     setIsClient(false);
-    setMapKey(Date.now());
+    setIsMapReady(false);
+    setMapKey(Date.now()); // Force new map instance
+    cleanupMap();
+    
     setTimeout(() => {
       setIsClient(true);
     }, 100);
-  };
+  }, [cleanupMap]);
 
-  // Fetch nature locations from your API
+  // Fetch nature locations from API
   useEffect(() => {
+    if (!isClient) return;
+
     const fetchNatureLocations = async () => {
       try {
         const response = await fetch('/api/nature-locations');
@@ -126,17 +175,26 @@ const MapComponent = () => {
         console.log('Loaded nature locations:', locations.length);
       } catch (error) {
         console.error('Failed to fetch nature locations:', error);
+        // You might want to set some default locations here
       }
     };
 
     fetchNatureLocations();
-  }, []);
+  }, [isClient]);
 
   // Track user location
   useEffect(() => {
-    const watchedLocation = navigator.geolocation.watchPosition(
-      (loc: GeolocationPosition) => {
-        const { latitude, longitude } = loc.coords;
+    if (!isClient || !isMapReady) return;
+
+    const watchOptions: PositionOptions = {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 30000
+    };
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position: GeolocationPosition) => {
+        const { latitude, longitude } = position.coords;
         const newCenter: [number, number] = [latitude, longitude];
         
         setCenter(newCenter);
@@ -147,43 +205,31 @@ const MapComponent = () => {
       },
       (error) => {
         console.error('Geolocation error:', error);
+        // Handle different error types
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            console.warn('User denied geolocation permission');
+            break;
+          case error.POSITION_UNAVAILABLE:
+            console.warn('Location information unavailable');
+            break;
+          case error.TIMEOUT:
+            console.warn('Location request timed out');
+            break;
+        }
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 5000,
-        maximumAge: 0
-      }
+      watchOptions
     );
 
     return () => {
-      navigator.geolocation.clearWatch(watchedLocation);
-    };
-  }, [checkProximityToNature]);
-
-  // Additional cleanup effect for map container conflicts
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Check for duplicate leaflet containers and clean them up
-      const containers = document.querySelectorAll('.leaflet-container');
-      if (containers.length > 1) {
-        console.warn('Multiple leaflet containers detected, cleaning up...');
-        containers.forEach((container, index) => {
-          if (index > 0) { // Keep only the first one
-            const mapInstance = (container as any)._leaflet_map;
-            if (mapInstance) {
-              try {
-                mapInstance.remove();
-              } catch (e) {
-                // Ignore errors
-              }
-            }
-          }
-        });
+      if (watchIdRef.current) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
       }
-    }, 5000); // Check every 5 seconds
+    };
+  }, [isClient, isMapReady, checkProximityToNature]);
 
-    return () => clearInterval(interval);
-  }, []);
+
 
   // Show loading state until client-side rendering is ready
   if (!isClient) {
@@ -223,84 +269,104 @@ const MapComponent = () => {
   return (
     <div 
       ref={containerRef}
-      className="w-full h-[400px] relative" 
-      id={`enhanced-map-container-${mapKey}`}
+      className="w-full h-[400px] relative"
+      id={`enhanced-map-wrapper-${mapKey}`}
     >
-      <MapContainer
-        key={`map-${mapKey}`}
-        center={center}
-        zoom={13}
-        style={{ width: "100%", height: "400px" }}
-        scrollWheelZoom={true}
-        attributionControl={true}
-      >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      
-      {/* User location marker */}
-      {userLocation && (
-        <Marker position={userLocation} icon={createCustomIcon('user')}>
-          <Popup>
-            📍 Your current location
-            <br />
-            <small>Lat: {userLocation[0].toFixed(6)}, Lng: {userLocation[1].toFixed(6)}</small>
-          </Popup>
-        </Marker>
-      )}
-
-      {/* Nature location markers */}
-      {natureLocations.map((location) => (
-        <Marker 
-          key={location.id} 
-          position={location.coordinates}
-          icon={createCustomIcon(location.type)}
-        >
-          <Popup>
-            <div className="p-2">
-              <h3 className="font-bold text-green-700">{location.name}</h3>
-              <p className="text-sm text-gray-600 mb-2">{location.description}</p>
-              <div className="text-xs">
-                <span className="bg-green-100 text-green-800 px-2 py-1 rounded">
-                  {location.type.charAt(0).toUpperCase() + location.type.slice(1)}
-                </span>
-              </div>
-              {location.activities && (
-                <div className="mt-2">
-                  <p className="text-xs font-semibold">Activities:</p>
-                  <p className="text-xs">{location.activities.join(', ')}</p>
-                </div>
-              )}
-              <button 
-                className="mt-2 bg-green-500 text-white px-3 py-1 rounded text-xs hover:bg-green-600"
-                onClick={() => {
-                  // Start a challenge or log visit
-                  console.log(`Starting activity at ${location.name}`);
-                }}
-              >
-                Start Green Time
-              </button>
-            </div>
-          </Popup>
-        </Marker>
-      ))}
-
-      {/* Proximity circles around nature locations */}
-      {natureLocations.map((location) => (
-        <Circle
-          key={`circle-${location.id}`}
-          center={location.coordinates}
-          radius={100} // 100 meter radius
-          pathOptions={{
-            color: 'green',
-            fillColor: 'lightgreen',
-            fillOpacity: 0.1,
-            weight: 1
+      {error ? (
+        <div className="flex items-center justify-center h-full bg-gray-100 rounded-lg">
+          <div className="text-center">
+            <p className="text-red-600 mb-2">Map loading error</p>
+            <button 
+              onClick={resetMap}
+              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+            >
+              Retry Map
+            </button>
+          </div>
+        </div>
+      ) : (
+        <MapContainer
+          key={`enhanced-map-${mapKey}`}
+          center={center}
+          zoom={13}
+          style={{ width: "100%", height: "400px" }}
+          scrollWheelZoom={true}
+          attributionControl={true}
+          ref={(mapInstance) => {
+            if (mapInstance) {
+              mapInstanceRef.current = mapInstance;
+              setIsMapReady(true);
+            }
           }}
-        />
-      ))}
-    </MapContainer>
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          
+          {/* User location marker */}
+          {userLocation && (
+            <Marker position={userLocation} icon={createCustomIcon('user')}>
+              <Popup>
+                📍 Your current location
+                <br />
+                <small>Lat: {userLocation[0].toFixed(6)}, Lng: {userLocation[1].toFixed(6)}</small>
+              </Popup>
+            </Marker>
+          )}
+
+          {/* Nature location markers */}
+          {natureLocations.map((location) => (
+            <Marker 
+              key={location.id} 
+              position={location.coordinates}
+              icon={createCustomIcon(location.type)}
+            >
+              <Popup>
+                <div className="p-2">
+                  <h3 className="font-bold text-green-700">{location.name}</h3>
+                  <p className="text-sm text-gray-600 mb-2">{location.description}</p>
+                  <div className="text-xs">
+                    <span className="bg-green-100 text-green-800 px-2 py-1 rounded">
+                      {location.type.charAt(0).toUpperCase() + location.type.slice(1)}
+                    </span>
+                  </div>
+                  {location.activities && (
+                    <div className="mt-2">
+                      <p className="text-xs font-semibold">Activities:</p>
+                      <p className="text-xs">{location.activities.join(', ')}</p>
+                    </div>
+                  )}
+                  <button 
+                    className="mt-2 bg-green-500 text-white px-3 py-1 rounded text-xs hover:bg-green-600"
+                    onClick={() => {
+                      // Start a challenge or log visit
+                      console.log(`Starting activity at ${location.name}`);
+                    }}
+                  >
+                    Start Green Time
+                  </button>
+                </div>
+              </Popup>
+            </Marker>
+          ))}
+
+          {/* Proximity circles around nature locations */}
+          {natureLocations.map((location) => (
+            <Circle
+              key={`circle-${location.id}`}
+              center={location.coordinates}
+              radius={100} // 100 meter radius
+              pathOptions={{
+                color: 'green',
+                fillColor: 'lightgreen',
+                fillOpacity: 0.1,
+                weight: 1
+              }}
+            />
+          ))}
+        </MapContainer>
+      )}
     </div>
   );
 };
@@ -309,9 +375,9 @@ const MapComponent = () => {
 export const EnhancedMap = () => {
   const [resetKey, setResetKey] = useState(Date.now());
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     setResetKey(Date.now());
-  };
+  }, []);
 
   try {
     return <MapComponent key={resetKey} />;

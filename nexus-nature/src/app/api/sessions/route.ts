@@ -1,21 +1,27 @@
 // src/app/api/sessions/route.ts
 import { NextResponse } from "next/server";
-import dbConnect from "@/lib/mongodb";
-// import { getServerSession } from "next-auth";
-// import { authOptions } from "@/lib/auth";
-import GreenSession from "@/lib/models/GreenSession";
-import User from "@/lib/models/userCollection";
+import mongoDbConnection from "@/lib/mongodb";
+import GreenSession from "@/models/greenSessionCollection";
+import User from "@/models/userCollection";
+import { getServerSession } from "next-auth";
+import authConfig from "@/auth/auth.config";
+
+interface UserDocument {
+  _id: string;
+  email: string;
+  name: string;
+}
 
 // GET => return sessions for current user
 export async function GET() {
   try {
-    await dbConnect();
-    // const session = await getServerSession(authOptions);
-    // if (!session?.user?.email) {
-    //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    // }
+    await mongoDbConnection();
+    const session = await getServerSession(authConfig);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    const user:unknown = await User.findOne({ email:user.email }).lean();
+    const user = await User.findOne({ email: session.user.email }).lean() as UserDocument | null;
     if (!user) {
       return NextResponse.json({ sessions: [] });
     }
@@ -31,19 +37,19 @@ export async function GET() {
 // POST => create new session for current user
 export async function POST(req: Request) {
   try {
-    await dbConnect();
-    // const session = await getServerSession(authOptions);
-    // if (!session?.user?.email) {
-    //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    // }
+    await mongoDbConnection();
+    const session = await getServerSession(authConfig);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const body = await req.json();
     // find or create user
-    let user = await User.findOne({ email: user.email });
+    let user = await User.findOne({ email: session.user.email });
     if (!user) {
       user = await User.create({
-        email: user.email,
-        name:user.name || user.email.split("@")[0],
+        email: session.user.email,
+        name: session.user.name || session.user.email.split("@")[0],
       });
     }
 

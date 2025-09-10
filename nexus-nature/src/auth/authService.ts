@@ -1,10 +1,4 @@
-// import { pwdConfirm, pwdHasher } from "@/libs/bcrypt/password";
-// import { Guardian } from "@/models/Guardian";
-// import { Teacher } from "@/models/Teacher";
-// import { User } from "@/models/User";
-// import { dbCon } from "@/libs/mongoose/dbCon";
-// import { mongoDbConnection } from "@/lib/mongodb";
-
+import bcrypt from "bcryptjs";
 import mongoDbConnection from "@/lib/mongodb";
 import User from "@/models/userCollection";
 
@@ -20,14 +14,12 @@ class AuthService {
 
   async loginWithCredentials(email: string, password: string) {
     const user = await this.findByEmail(email);
-    if (
-      !user ||
-      !user.password ||
-      !(
-        pwdConfirm(password, process.env.USER_DEFAULT_PASSWORD!) ||
-        (await pwdConfirm(password, user.password))
-      )
-    ) {
+    if (!user || !user.password) {
+      return null;
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
       return null;
     }
 
@@ -49,12 +41,23 @@ class AuthService {
     const existing = await this.findByEmail(data.email);
     if (existing) throw new Error("Email already registered");
 
-    const hashed = await pwdHasher(
-      data.password || process.env.USER_DEFAULT_PASSWORD! || "123456"
-    );
+    const hashedPassword = await bcrypt.hash(data.password, 12);
 
-    // Create using the discriminator
-    
+    const user = await User.create({
+      name: data.name,
+      email: data.email,
+      password: hashedPassword,
+      role: data.role,
+      authProvider: "credentials",
+    });
+
+    return {
+      id: user._id.toString(),
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      image: user.image,
+    };
   }
 
   async loginWithGoogleProfile(profile: {

@@ -5,7 +5,10 @@ import L from "leaflet";
 import { useState } from "react";
 
 // ✅ Fix Leaflet's default marker icons (Next.js needs manual config)
-delete (L.Icon.Default.prototype as unknown)._getIconUrl;
+interface LeafletIconPrototype extends L.Icon.Default {
+  _getIconUrl?: () => string;
+}
+delete (L.Icon.Default.prototype as LeafletIconPrototype)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "/leaflet/images/marker-icon.png",
   iconUrl: "/leaflet/images/marker-icon.png",

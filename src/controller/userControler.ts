@@ -42,7 +42,7 @@ class UserController {
       throw error;
     }
   }
-  async updateUser(id: string, data: any) {
+  async updateUser(id: string, data: Record<string, unknown>) {
     try {
       await this.dbInit();
       const user = await this.db.findByIdAndUpdate(id, data, { new: true });
