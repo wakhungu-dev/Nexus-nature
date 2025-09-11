@@ -1,16 +1,18 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 
-// Dynamic import to prevent SSR issues with Leaflet
-const EnhancedMapComponent = dynamic(
-  () => import("@/components/EnhancedMap").then((mod) => ({ default: mod.EnhancedMap })),
+// Dynamic import of the simple map component
+const SimpleEnhancedMapComponent = dynamic(
+  () => import("@/components/SimpleEnhancedMap").then((mod) => ({ 
+    default: mod.SimpleEnhancedMap 
+  })),
   {
     ssr: false,
     loading: () => (
-      <div className="w-full h-full flex items-center justify-center">
+      <div className="w-full h-[400px] flex items-center justify-center bg-gray-100 rounded-lg">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
           <div className="text-lg text-gray-600">Loading Enhanced Map...</div>
@@ -20,9 +22,26 @@ const EnhancedMapComponent = dynamic(
   }
 );
 
-// Single instance to prevent re-initialization
-const SingletonEnhancedMap = React.memo(function SingletonEnhancedMap() {
-  return <EnhancedMapComponent />;
+// Memoized wrapper to prevent unnecessary re-renders
+const MemoizedSimpleMap = React.memo(function MemoizedSimpleMap() {
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (!isClient) {
+    return (
+      <div className="w-full h-[400px] flex items-center justify-center bg-gray-100 rounded-lg">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
+          <div className="text-lg text-gray-600">Initializing...</div>
+        </div>
+      </div>
+    );
+  }
+
+  return <SimpleEnhancedMapComponent />;
 });
 
 export default function EnhancedMapPage() {
@@ -143,7 +162,7 @@ export default function EnhancedMapPage() {
           <div className="lg:col-span-3">
             <div className="bg-white rounded-lg shadow-md p-4">
               <div className="h-[600px] rounded-lg overflow-hidden">
-                <SingletonEnhancedMap />
+                <MemoizedSimpleMap />
               </div>
             </div>
           </div>

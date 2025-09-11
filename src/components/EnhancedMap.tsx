@@ -3,8 +3,63 @@ import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// Global registry to track map containers
-const mapContainerRegistry = new Set<string>();
+// Global singleton map manager
+class MapManager {
+  private static instance: MapManager;
+  private mapInstances: Map<string, L.Map> = new Map();
+  private activeContainers: Set<string> = new Set();
+
+  static getInstance(): MapManager {
+    if (!MapManager.instance) {
+      MapManager.instance = new MapManager();
+    }
+    return MapManager.instance;
+  }
+
+  registerContainer(id: string): boolean {
+    if (this.activeContainers.has(id)) {
+      console.warn(`Container ${id} already registered`);
+      return false;
+    }
+    this.activeContainers.add(id);
+    return true;
+  }
+
+  unregisterContainer(id: string): void {
+    this.activeContainers.delete(id);
+    const mapInstance = this.mapInstances.get(id);
+    if (mapInstance) {
+      try {
+        mapInstance.remove();
+      } catch (e) {
+        console.warn('Error removing map:', e);
+      }
+      this.mapInstances.delete(id);
+    }
+  }
+
+  setMapInstance(id: string, map: L.Map): void {
+    this.mapInstances.set(id, map);
+  }
+
+  isContainerActive(id: string): boolean {
+    return this.activeContainers.has(id);
+  }
+
+  clearAll(): void {
+    this.mapInstances.forEach((map) => {
+      try {
+        map.remove();
+      } catch (e) {
+        console.warn('Error removing map:', e);
+      }
+    });
+    this.mapInstances.clear();
+    this.activeContainers.clear();
+  }
+}
+
+const mapManager = MapManager.getInstance();
 
 // Simple error boundary for map component
 const ErrorBoundary: React.FC<{ children: React.ReactNode; fallback: React.ReactNode }> = ({ children, fallback }) => {
@@ -110,45 +165,8 @@ const MapComponent = () => {
     }
   }, [natureLocations]);
 
-  // Comprehensive cleanup function
-  const cleanupMap = useCallback(() => {
-    // Clear geolocation watch
-    if (watchIdRef.current) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-
-    // Clean up map instance
-    if (mapInstanceRef.current) {
-      try {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      } catch (error) {
-        console.warn('Error cleaning up map:', error);
-      }
-    }
-
-    // Clean up any remaining leaflet containers
-    if (containerRef.current) {
-      const leafletContainers = containerRef.current.querySelectorAll('.leaflet-container');
-      leafletContainers.forEach(container => {
-        const mapInstance = (container as HTMLElement & { _leaflet_map?: L.Map })._leaflet_map;
-        if (mapInstance) {
-          try {
-            mapInstance.remove();
-          } catch (error) {
-            console.warn('Error removing leaflet container:', error);
-          }
-        }
-      });
-    }
-  }, []);
-
   // Initialize client-side rendering
   useEffect(() => {
-    // Force cleanup of any existing maps before initialization
-    cleanupMap();
-    
     // Small delay to ensure cleanup is complete
     const timer = setTimeout(() => {
       setIsClient(true);
@@ -157,9 +175,15 @@ const MapComponent = () => {
     
     return () => {
       clearTimeout(timer);
-      cleanupMap();
+      const containerId = containerIdRef.current;
+      mapManager.unregisterContainer(containerId);
+      // Clear geolocation watch
+      if (watchIdRef.current) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
     };
-  }, [cleanupMap]);
+  }, []);
 
   // Reset map on error with comprehensive cleanup
   const resetMap = useCallback(() => {
@@ -167,20 +191,8 @@ const MapComponent = () => {
     
     const containerId = containerIdRef.current;
     
-    // Remove from registry
-    if (mapContainerRegistry.has(containerId)) {
-      mapContainerRegistry.delete(containerId);
-    }
-    
-    // Clean up existing map instance
-    if (mapInstanceRef.current) {
-      try {
-        mapInstanceRef.current.remove();
-      } catch (e) {
-        console.warn('Error removing map:', e);
-      }
-      mapInstanceRef.current = null;
-    }
+    // Remove from manager
+    mapManager.unregisterContainer(containerId);
     
     // Clear container content
     if (containerRef.current) {
@@ -198,7 +210,7 @@ const MapComponent = () => {
     // Re-initialize after cleanup
     setTimeout(() => {
       setIsClient(true);
-    }, 200);
+    }, 300);
   }, []);
 
   // Fetch nature locations from API
@@ -341,7 +353,7 @@ const MapComponent = () => {
             </div>
           }
         >
-          {!mapContainerRegistry.has(containerIdRef.current) && (
+          {!mapManager.isContainerActive(containerIdRef.current) && (
             <MapContainer
               key={`enhanced-map-${mapKey}`}
               center={center}
@@ -352,10 +364,13 @@ const MapComponent = () => {
               ref={(mapInstance) => {
                 if (mapInstance && !mapInstanceRef.current) {
                   try {
-                    mapContainerRegistry.add(containerIdRef.current);
-                    mapInstanceRef.current = mapInstance;
-                    setIsMapReady(true);
-                    console.log('Map successfully initialized');
+                    const containerId = containerIdRef.current;
+                    if (mapManager.registerContainer(containerId)) {
+                      mapManager.setMapInstance(containerId, mapInstance);
+                      mapInstanceRef.current = mapInstance;
+                      setIsMapReady(true);
+                      console.log('Map successfully initialized with manager');
+                    }
                   } catch (error) {
                     console.error('Error setting map instance:', error);
                     setHasError(true);
