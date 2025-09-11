@@ -1,7 +1,20 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+
+// Global registry to track map containers
+const mapContainerRegistry = new Set<string>();
+
+// Simple error boundary for map component
+const ErrorBoundary: React.FC<{ children: React.ReactNode; fallback: React.ReactNode }> = ({ children, fallback }) => {
+  try {
+    return <>{children}</>;
+  } catch (error) {
+    console.error('Map ErrorBoundary caught:', error);
+    return <>{fallback}</>;
+  }
+};
 
 // Extend HTMLElement type to include leaflet map
 declare global {
@@ -52,6 +65,7 @@ const MapComponent = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const watchIdRef = useRef<number | null>(null);
+  const containerIdRef = useRef<string>(`map-container-${Date.now()}-${Math.random()}`);
 
   // Helper function to calculate distance between two points
   const calculateDistance = (pos1: [number, number], pos2: [number, number]): number => {
@@ -147,18 +161,45 @@ const MapComponent = () => {
     };
   }, [cleanupMap]);
 
-  // Reset map on error
+  // Reset map on error with comprehensive cleanup
   const resetMap = useCallback(() => {
+    console.log('Resetting map...');
+    
+    const containerId = containerIdRef.current;
+    
+    // Remove from registry
+    if (mapContainerRegistry.has(containerId)) {
+      mapContainerRegistry.delete(containerId);
+    }
+    
+    // Clean up existing map instance
+    if (mapInstanceRef.current) {
+      try {
+        mapInstanceRef.current.remove();
+      } catch (e) {
+        console.warn('Error removing map:', e);
+      }
+      mapInstanceRef.current = null;
+    }
+    
+    // Clear container content
+    if (containerRef.current) {
+      containerRef.current.innerHTML = '';
+    }
+    
+    // Reset state and generate new container ID
     setHasError(false);
     setIsClient(false);
     setIsMapReady(false);
-    setMapKey(Date.now()); // Force new map instance
-    cleanupMap();
+    const newMapKey = Date.now();
+    setMapKey(newMapKey);
+    containerIdRef.current = `map-container-${newMapKey}-${Math.random()}`;
     
+    // Re-initialize after cleanup
     setTimeout(() => {
       setIsClient(true);
-    }, 100);
-  }, [cleanupMap]);
+    }, 200);
+  }, []);
 
   // Fetch nature locations from API
   useEffect(() => {
@@ -270,7 +311,7 @@ const MapComponent = () => {
     <div 
       ref={containerRef}
       className="w-full h-[400px] relative"
-      id={`enhanced-map-wrapper-${mapKey}`}
+      id={containerIdRef.current}
     >
       {error ? (
         <div className="flex items-center justify-center h-full bg-gray-100 rounded-lg">
@@ -285,20 +326,43 @@ const MapComponent = () => {
           </div>
         </div>
       ) : (
-        <MapContainer
-          key={`enhanced-map-${mapKey}`}
-          center={center}
-          zoom={13}
-          style={{ width: "100%", height: "400px" }}
-          scrollWheelZoom={true}
-          attributionControl={true}
-          ref={(mapInstance) => {
-            if (mapInstance) {
-              mapInstanceRef.current = mapInstance;
-              setIsMapReady(true);
-            }
-          }}
+        <ErrorBoundary
+          fallback={
+            <div className="flex items-center justify-center h-full bg-gray-100 rounded-lg">
+              <div className="text-center">
+                <p className="text-red-600 mb-2">Map container error</p>
+                <button 
+                  onClick={resetMap}
+                  className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                >
+                  Reset Map
+                </button>
+              </div>
+            </div>
+          }
         >
+          {!mapContainerRegistry.has(containerIdRef.current) && (
+            <MapContainer
+              key={`enhanced-map-${mapKey}`}
+              center={center}
+              zoom={13}
+              style={{ width: "100%", height: "400px" }}
+              scrollWheelZoom={true}
+              attributionControl={true}
+              ref={(mapInstance) => {
+                if (mapInstance && !mapInstanceRef.current) {
+                  try {
+                    mapContainerRegistry.add(containerIdRef.current);
+                    mapInstanceRef.current = mapInstance;
+                    setIsMapReady(true);
+                    console.log('Map successfully initialized');
+                  } catch (error) {
+                    console.error('Error setting map instance:', error);
+                    setHasError(true);
+                  }
+                }
+              }}
+            >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -366,18 +430,43 @@ const MapComponent = () => {
             />
           ))}
         </MapContainer>
+          )}
+        </ErrorBoundary>
       )}
     </div>
   );
 };
 
-// Export with error boundary wrapper
+// Export with error boundary wrapper  
 export const EnhancedMap = () => {
   const [resetKey, setResetKey] = useState(Date.now());
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   const handleReset = useCallback(() => {
+    console.log('Resetting enhanced map component...');
+    setHasInitialized(false);
     setResetKey(Date.now());
+    
+    // Allow re-initialization after cleanup
+    setTimeout(() => {
+      setHasInitialized(true);
+    }, 300);
   }, []);
+
+  useEffect(() => {
+    setHasInitialized(true);
+  }, []);
+
+  if (!hasInitialized) {
+    return (
+      <div className="w-full h-[400px] flex items-center justify-center bg-gray-100 rounded-lg">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
+          <div className="text-lg text-gray-600">Initializing Map...</div>
+        </div>
+      </div>
+    );
+  }
 
   try {
     return <MapComponent key={resetKey} />;

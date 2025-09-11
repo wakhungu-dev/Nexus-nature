@@ -4,24 +4,26 @@ import React from "react";
 import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 
-// Dynamically import the EnhancedMap component to avoid SSR issues
+// Dynamic import to prevent SSR issues with Leaflet
 const EnhancedMapComponent = dynamic(
-  () => import("@/components/EnhancedMap").then((mod) => ({ default: mod.EnhancedMap })), 
-  { 
+  () => import("@/components/EnhancedMap").then((mod) => ({ default: mod.EnhancedMap })),
+  {
     ssr: false,
     loading: () => (
-      <div className="h-96 w-full bg-gray-200 flex items-center justify-center rounded-lg">
+      <div className="w-full h-full flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
           <div className="text-lg text-gray-600">Loading Enhanced Map...</div>
         </div>
       </div>
-    )
+    ),
   }
 );
 
-// Memoize the component to prevent unnecessary re-renders
-const MemoizedEnhancedMap = React.memo(EnhancedMapComponent);
+// Single instance to prevent re-initialization
+const SingletonEnhancedMap = React.memo(function SingletonEnhancedMap() {
+  return <EnhancedMapComponent />;
+});
 
 export default function EnhancedMapPage() {
   const { data: session } = useSession();
@@ -141,7 +143,7 @@ export default function EnhancedMapPage() {
           <div className="lg:col-span-3">
             <div className="bg-white rounded-lg shadow-md p-4">
               <div className="h-[600px] rounded-lg overflow-hidden">
-                <MemoizedEnhancedMap />
+                <SingletonEnhancedMap />
               </div>
             </div>
           </div>
