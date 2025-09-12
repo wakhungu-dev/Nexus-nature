@@ -1,7 +1,75 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+
+// Global singleton map manager
+class MapManager {
+  private static instance: MapManager;
+  private mapInstances: Map<string, L.Map> = new Map();
+  private activeContainers: Set<string> = new Set();
+
+  static getInstance(): MapManager {
+    if (!MapManager.instance) {
+      MapManager.instance = new MapManager();
+    }
+    return MapManager.instance;
+  }
+
+  registerContainer(id: string): boolean {
+    if (this.activeContainers.has(id)) {
+      console.warn(`Container ${id} already registered`);
+      return false;
+    }
+    this.activeContainers.add(id);
+    return true;
+  }
+
+  unregisterContainer(id: string): void {
+    this.activeContainers.delete(id);
+    const mapInstance = this.mapInstances.get(id);
+    if (mapInstance) {
+      try {
+        mapInstance.remove();
+      } catch (e) {
+        console.warn('Error removing map:', e);
+      }
+      this.mapInstances.delete(id);
+    }
+  }
+
+  setMapInstance(id: string, map: L.Map): void {
+    this.mapInstances.set(id, map);
+  }
+
+  isContainerActive(id: string): boolean {
+    return this.activeContainers.has(id);
+  }
+
+  clearAll(): void {
+    this.mapInstances.forEach((map) => {
+      try {
+        map.remove();
+      } catch (e) {
+        console.warn('Error removing map:', e);
+      }
+    });
+    this.mapInstances.clear();
+    this.activeContainers.clear();
+  }
+}
+
+const mapManager = MapManager.getInstance();
+
+// Simple error boundary for map component
+const ErrorBoundary: React.FC<{ children: React.ReactNode; fallback: React.ReactNode }> = ({ children, fallback }) => {
+  try {
+    return <>{children}</>;
+  } catch (error) {
+    console.error('Map ErrorBoundary caught:', error);
+    return <>{fallback}</>;
+  }
+};
 
 // Extend HTMLElement type to include leaflet map
 declare global {
@@ -52,6 +120,7 @@ const MapComponent = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const watchIdRef = useRef<number | null>(null);
+  const containerIdRef = useRef<string>(`map-container-${Date.now()}-${Math.random()}`);
 
   // Helper function to calculate distance between two points
   const calculateDistance = (pos1: [number, number], pos2: [number, number]): number => {
@@ -96,45 +165,8 @@ const MapComponent = () => {
     }
   }, [natureLocations]);
 
-  // Comprehensive cleanup function
-  const cleanupMap = useCallback(() => {
-    // Clear geolocation watch
-    if (watchIdRef.current) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-
-    // Clean up map instance
-    if (mapInstanceRef.current) {
-      try {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      } catch (error) {
-        console.warn('Error cleaning up map:', error);
-      }
-    }
-
-    // Clean up any remaining leaflet containers
-    if (containerRef.current) {
-      const leafletContainers = containerRef.current.querySelectorAll('.leaflet-container');
-      leafletContainers.forEach(container => {
-        const mapInstance = (container as HTMLElement & { _leaflet_map?: L.Map })._leaflet_map;
-        if (mapInstance) {
-          try {
-            mapInstance.remove();
-          } catch (error) {
-            console.warn('Error removing leaflet container:', error);
-          }
-        }
-      });
-    }
-  }, []);
-
   // Initialize client-side rendering
   useEffect(() => {
-    // Force cleanup of any existing maps before initialization
-    cleanupMap();
-    
     // Small delay to ensure cleanup is complete
     const timer = setTimeout(() => {
       setIsClient(true);
@@ -143,22 +175,43 @@ const MapComponent = () => {
     
     return () => {
       clearTimeout(timer);
-      cleanupMap();
+      const containerId = containerIdRef.current;
+      mapManager.unregisterContainer(containerId);
+      // Clear geolocation watch
+      if (watchIdRef.current) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
     };
-  }, [cleanupMap]);
+  }, []);
 
-  // Reset map on error
+  // Reset map on error with comprehensive cleanup
   const resetMap = useCallback(() => {
+    console.log('Resetting map...');
+    
+    const containerId = containerIdRef.current;
+    
+    // Remove from manager
+    mapManager.unregisterContainer(containerId);
+    
+    // Clear container content
+    if (containerRef.current) {
+      containerRef.current.innerHTML = '';
+    }
+    
+    // Reset state and generate new container ID
     setHasError(false);
     setIsClient(false);
     setIsMapReady(false);
-    setMapKey(Date.now()); // Force new map instance
-    cleanupMap();
+    const newMapKey = Date.now();
+    setMapKey(newMapKey);
+    containerIdRef.current = `map-container-${newMapKey}-${Math.random()}`;
     
+    // Re-initialize after cleanup
     setTimeout(() => {
       setIsClient(true);
-    }, 100);
-  }, [cleanupMap]);
+    }, 300);
+  }, []);
 
   // Fetch nature locations from API
   useEffect(() => {
@@ -270,7 +323,7 @@ const MapComponent = () => {
     <div 
       ref={containerRef}
       className="w-full h-[400px] relative"
-      id={`enhanced-map-wrapper-${mapKey}`}
+      id={containerIdRef.current}
     >
       {error ? (
         <div className="flex items-center justify-center h-full bg-gray-100 rounded-lg">
@@ -285,20 +338,46 @@ const MapComponent = () => {
           </div>
         </div>
       ) : (
-        <MapContainer
-          key={`enhanced-map-${mapKey}`}
-          center={center}
-          zoom={13}
-          style={{ width: "100%", height: "400px" }}
-          scrollWheelZoom={true}
-          attributionControl={true}
-          ref={(mapInstance) => {
-            if (mapInstance) {
-              mapInstanceRef.current = mapInstance;
-              setIsMapReady(true);
-            }
-          }}
+        <ErrorBoundary
+          fallback={
+            <div className="flex items-center justify-center h-full bg-gray-100 rounded-lg">
+              <div className="text-center">
+                <p className="text-red-600 mb-2">Map container error</p>
+                <button 
+                  onClick={resetMap}
+                  className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                >
+                  Reset Map
+                </button>
+              </div>
+            </div>
+          }
         >
+          {!mapManager.isContainerActive(containerIdRef.current) && (
+            <MapContainer
+              key={`enhanced-map-${mapKey}`}
+              center={center}
+              zoom={13}
+              style={{ width: "100%", height: "400px" }}
+              scrollWheelZoom={true}
+              attributionControl={true}
+              ref={(mapInstance) => {
+                if (mapInstance && !mapInstanceRef.current) {
+                  try {
+                    const containerId = containerIdRef.current;
+                    if (mapManager.registerContainer(containerId)) {
+                      mapManager.setMapInstance(containerId, mapInstance);
+                      mapInstanceRef.current = mapInstance;
+                      setIsMapReady(true);
+                      console.log('Map successfully initialized with manager');
+                    }
+                  } catch (error) {
+                    console.error('Error setting map instance:', error);
+                    setHasError(true);
+                  }
+                }
+              }}
+            >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -366,18 +445,43 @@ const MapComponent = () => {
             />
           ))}
         </MapContainer>
+          )}
+        </ErrorBoundary>
       )}
     </div>
   );
 };
 
-// Export with error boundary wrapper
+// Export with error boundary wrapper  
 export const EnhancedMap = () => {
   const [resetKey, setResetKey] = useState(Date.now());
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   const handleReset = useCallback(() => {
+    console.log('Resetting enhanced map component...');
+    setHasInitialized(false);
     setResetKey(Date.now());
+    
+    // Allow re-initialization after cleanup
+    setTimeout(() => {
+      setHasInitialized(true);
+    }, 300);
   }, []);
+
+  useEffect(() => {
+    setHasInitialized(true);
+  }, []);
+
+  if (!hasInitialized) {
+    return (
+      <div className="w-full h-[400px] flex items-center justify-center bg-gray-100 rounded-lg">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
+          <div className="text-lg text-gray-600">Initializing Map...</div>
+        </div>
+      </div>
+    );
+  }
 
   try {
     return <MapComponent key={resetKey} />;
