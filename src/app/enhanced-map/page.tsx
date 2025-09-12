@@ -4,26 +4,21 @@ import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 
-// Dynamic import of the simple map component
-const SimpleEnhancedMapComponent = dynamic(
-  () => import("@/components/SimpleEnhancedMap").then((mod) => ({ 
-    default: mod.SimpleEnhancedMap 
+// Dynamic import of the instant map component (loads immediately)
+const InstantMapComponent = dynamic(
+  () => import("@/components/InstantMap").then((mod) => ({ 
+    default: mod.InstantMap 
   })),
   {
     ssr: false,
     loading: () => (
-      <div className="w-full h-[400px] flex items-center justify-center bg-gray-100 rounded-lg">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
-          <div className="text-lg text-gray-600">Loading Enhanced Map...</div>
-        </div>
-      </div>
+      <div className="w-full h-[400px] bg-gray-100 rounded-lg animate-pulse"></div>
     ),
   }
 );
 
-// Memoized wrapper to prevent unnecessary re-renders
-const MemoizedSimpleMap = React.memo(function MemoizedSimpleMap() {
+// Memoized wrapper
+const MemoizedInstantMap = React.memo(function MemoizedInstantMap() {
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -34,14 +29,14 @@ const MemoizedSimpleMap = React.memo(function MemoizedSimpleMap() {
     return (
       <div className="w-full h-[400px] flex items-center justify-center bg-gray-100 rounded-lg">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-2"></div>
-          <div className="text-lg text-gray-600">Initializing...</div>
+          <div className="animate-pulse h-4 w-16 bg-gray-300 rounded mx-auto mb-2"></div>
+          <div className="text-xs text-gray-500">Initializing...</div>
         </div>
       </div>
     );
   }
 
-  return <SimpleEnhancedMapComponent />;
+  return <InstantMapComponent />;
 });
 
 export default function EnhancedMapPage() {
@@ -162,7 +157,7 @@ export default function EnhancedMapPage() {
           <div className="lg:col-span-3">
             <div className="bg-white rounded-lg shadow-md p-4">
               <div className="h-[600px] rounded-lg overflow-hidden">
-                <MemoizedSimpleMap />
+                <MemoizedInstantMap />
               </div>
             </div>
           </div>
