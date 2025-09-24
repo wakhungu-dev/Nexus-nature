@@ -2,6 +2,9 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import axios from "axios";
+// import axios from "axios";
+
 
 // Global singleton map manager
 class MapManager {
@@ -147,7 +150,7 @@ const MapComponent = () => {
     if (nearbyNature) {
       try {
         // Start logging green session
-        await fetch('/api/green-sessions', {
+        await axios.post('/api/green-sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
