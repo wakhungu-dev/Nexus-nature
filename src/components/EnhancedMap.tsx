@@ -2,6 +2,9 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import axios from "axios";
+// import axios from "axios";
+
 
 // Global singleton map manager
 class MapManager {
@@ -147,7 +150,7 @@ const MapComponent = () => {
     if (nearbyNature) {
       try {
         // Start logging green session
-        await fetch('/api/green-sessions', {
+        await axios.post('/api/green-sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -376,6 +379,9 @@ const MapComponent = () => {
                     setHasError(true);
                   }
                 }
+                if (!mapInstance) {
+                  mapInstanceRef.current = null;
+                }
               }}
             >
           <TileLayer
@@ -403,7 +409,7 @@ const MapComponent = () => {
             >
               <Popup>
                 <div className="p-2">
-                  <h3 className="font-bold text-green-700">{location.name}</h3>
+                  <h3 className="font-bold text-green-800">{location.name}</h3>
                   <p className="text-sm text-gray-600 mb-2">{location.description}</p>
                   <div className="text-xs">
                     <span className="bg-green-100 text-green-800 px-2 py-1 rounded">
