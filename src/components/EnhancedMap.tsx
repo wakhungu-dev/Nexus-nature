@@ -406,7 +406,7 @@ const MapComponent = () => {
             >
               <Popup>
                 <div className="p-2">
-                  <h3 className="font-bold text-green-700">{location.name}</h3>
+                  <h3 className="font-bold text-green-800">{location.name}</h3>
                   <p className="text-sm text-gray-600 mb-2">{location.description}</p>
                   <div className="text-xs">
                     <span className="bg-green-100 text-green-800 px-2 py-1 rounded">
