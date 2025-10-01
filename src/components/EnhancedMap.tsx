@@ -379,6 +379,9 @@ const MapComponent = () => {
                     setHasError(true);
                   }
                 }
+                if (!mapInstance) {
+                  mapInstanceRef.current = null;
+                }
               }}
             >
           <TileLayer
