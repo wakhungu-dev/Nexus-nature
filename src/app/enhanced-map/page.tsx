@@ -52,13 +52,13 @@ export default function EnhancedMapPage() {
               <h1 className="text-2xl font-bold text-gray-900">
                 🌿 Nature Explorer Map
               </h1>
-              <p className="text-sm text-gray-600 mt-1">
+              <p className="text-sm text-gray-600  mt-1">
                 Discover amazing nature locations and start your green journey
               </p>
             </div>
             <div className="flex items-center space-x-4">
               {session ? (
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-gray-600 ">
                   Welcome, <span className="font-medium">{session.user?.name}</span>
                 </div>
               ) : (
