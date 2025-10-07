@@ -1,12 +1,24 @@
 // import { userController } from '@/controller/userController';
 // import { IUser } from '@/models/UserModel';
 import { userController } from '@/controller/userControler';
-import NextAuth, { NextAuthOptions, Session, User, getServerSession } from 'next-auth';
+import NextAuth, { NextAuthOptions, Session } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 
-// Define your session callback interface
-interface SessionWithUser extends Session {
-  user: User & { id: string; name: string; email: string; image?: string };
+export interface SessionWithUser extends Session {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    image?: string;
+  };
+}
+
+// Define the user type that matches what your userController returns
+interface DatabaseUser {
+  _id: string ; // MongoDB ObjectId
+  email: string;
+  name: string;
+  image?: string;
 }
 
 const authOptions: NextAuthOptions = {
@@ -51,14 +63,14 @@ const authOptions: NextAuthOptions = {
       console.log('looking for user with email:', token.email);
 
       // Fetch the user from the database based on the token email
-      const dbUser = await userController.getUserByEmail(token.email as string);
+      const dbUser = await userController.getUserByEmail(token.email as string) as DatabaseUser;
       console.log('db user:', dbUser);
 
       // If user exists in the database, update the session user object
       if (dbUser) {
-        session.user = {
+        (session as SessionWithUser).user = {
           ...session.user,
-          id: dbUser._id.toString(),  // Assuming _id is the unique user identifier, ensure it's a string
+          id: dbUser._id?.toString() || '', // Safe access with optional chaining
           email: dbUser.email,
           name: dbUser.name,
           image: dbUser.image,
