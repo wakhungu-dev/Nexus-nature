@@ -22,6 +22,10 @@ export type UserType = z.infer<typeof UserZodSchema>;
 
 // Mongoose document interface
 export interface IUser extends Document {
+  id: string;
+  _id: string;
+  role: "user" | "admin";
+  image?: string;
   name: string;
   email: string;
   password: string;
@@ -103,7 +107,7 @@ UserSchema.methods.comparePassword = async function(candidatePassword: string): 
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-const User = (mongoose.models.User as IUserModel) || mongoose.model<IUser, IUserModel>("User", UserSchema);
+const User = (mongoose.models.User as unknown as IUserModel) || mongoose.model<IUser, IUserModel>("User", UserSchema);
 
 export default User;
 
