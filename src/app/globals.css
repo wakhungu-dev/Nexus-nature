@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Fix: Correct the import path */
+@import '../styles/theme.css';
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
