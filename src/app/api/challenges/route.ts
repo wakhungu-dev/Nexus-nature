@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 
     if (!title || !description || !difficulty || !category) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required fields ,please enter all fields" },
         { status: 400 }
       );
     }
