@@ -6,7 +6,7 @@ export async function GET() {
   try {
     await mongoDbConnection();
     
-    const challenges = await Challenge.find({}).sort({ difficulty: 1, category: 1 });
+    const challenges = await Challenge.find({}).sort({ difficulty: 1 , category: 1 });
     
     return NextResponse.json({ challenges });
   } catch (error) {
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 
     if (!title || !description || !difficulty || !category) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required fields ,please enter all fields" },
         { status: 400 }
       );
     }
@@ -44,3 +44,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
+
+

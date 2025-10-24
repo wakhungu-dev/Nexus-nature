@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import '../styles/theme.css'
 import "leaflet/dist/leaflet.css"; 
 import { AuthProvider } from "@/components/AuthProvider";
 import Navigation from "@/components/Navigation";
