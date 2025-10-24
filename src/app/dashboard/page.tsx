@@ -2,7 +2,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
@@ -33,10 +32,10 @@ interface WellnessReport {
 }
 
 export default function DashboardPage() {
-  const { data: session } = useSession();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [report, setReport] = useState<WellnessReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -59,6 +58,34 @@ export default function DashboardPage() {
     }
     load();
   }, []);
+
+  // Delete session function
+  const deleteSession = async (sessionId: string) => {
+    if (!confirm("Are you sure you want to delete this session? This action cannot be undone.")) {
+      return;
+    }
+
+    setDeletingSessionId(sessionId);
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        // Remove the session from local state
+        setSessions(prev => prev.filter(s => s._id !== sessionId));
+        alert("Session deleted successfully!");
+      } else {
+        const error = await response.json();
+        alert(`Failed to delete session: ${error.error || "Unknown error"}`);
+      }
+    } catch (error) {
+      console.error("Failed to delete session:", error);
+      alert("Failed to delete session. Please try again.");
+    } finally {
+      setDeletingSessionId(null);
+    }
+  };
 
   // prepare a simple counts-by-day for last 7 days
   const last7 = Array.from({ length: 7 }, (_, i) => {
@@ -152,9 +179,9 @@ export default function DashboardPage() {
                 ) : (
                   <ul className="space-y-3">
                     {sessions.slice(0, 8).map(s => (
-                      <li key={s._id} className="p-3 bg-gray-50 rounded-lg">
+                      <li key={s._id} className="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                         <div className="flex justify-between items-start">
-                          <div>
+                          <div className="flex-1">
                             <div className="font-medium text-gray-800">
                               {s.activityId ?? "Manual entry"}
                             </div>
@@ -166,8 +193,28 @@ export default function DashboardPage() {
                               📍 {s.location.coordinates[1].toFixed(4)}, {s.location.coordinates[0].toFixed(4)}
                             </div>
                           </div>
-                          <div className="text-sm font-medium text-green-600">
-                            {s.duration ? `${s.duration}m` : "—"}
+                          <div className="flex items-center gap-3">
+                            <div className="text-sm font-medium text-green-600">
+                              {s.duration ? `${s.duration}m` : "—"}
+                            </div>
+                            <button
+                              onClick={() => deleteSession(s._id)}
+                              disabled={deletingSessionId === s._id}
+                              className={`text-red-500 hover:text-red-700 p-1 rounded transition-colors ${
+                                deletingSessionId === s._id 
+                                  ? 'opacity-50 cursor-not-allowed' 
+                                  : 'hover:bg-red-50'
+                              }`}
+                              title="Delete session"
+                            >
+                              {deletingSessionId === s._id ? (
+                                <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+                              ) : (
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                            </button>
                           </div>
                         </div>
                       </li>
